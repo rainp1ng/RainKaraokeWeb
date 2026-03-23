@@ -11,6 +11,14 @@ export interface MidiDevice {
   name: string
 }
 
+export interface KeyBinding {
+  key: string          // KeyboardEvent.code, e.g. 'KeyA', 'Space'
+  keyDisplay: string   // 显示名称, e.g. 'A', 'Space'
+  ctrl?: boolean
+  shift?: boolean
+  alt?: boolean
+}
+
 interface MidiStore {
   // MIDI设备
   devices: MidiDevice[]
@@ -18,29 +26,38 @@ interface MidiStore {
   midiAccess: MIDIAccess | null
   savedDeviceId: string | null  // 保存的设备ID
 
-  // MIDI学习模式
+  // 学习模式 (MIDI + 键盘共用)
   learningAction: string | null  // 正在学习的动作ID
   learningSoundId: string | null  // 正在学习音效ID
+  learningMode: 'midi' | 'keyboard' | 'both'  // 学习模式
 
   // MIDI映射
   mappings: Record<string, MidiBinding>  // action -> binding
   soundMappings: Record<string, MidiBinding>  // soundId -> binding
 
+  // 键盘映射
+  keyboardMappings: Record<string, KeyBinding>  // action -> keyBinding
+  soundKeyboardMappings: Record<string, KeyBinding>  // soundId -> keyBinding
+
   // Actions
   init: () => Promise<void>
   connect: (deviceId: string) => Promise<boolean>
   disconnect: () => void
-  startLearning: (action: string) => void
-  startLearningSound: (soundId: string) => void
+  startLearning: (action: string, mode?: 'midi' | 'keyboard' | 'both') => void
+  startLearningSound: (soundId: string, mode?: 'midi' | 'keyboard' | 'both') => void
   stopLearning: () => void
   setMapping: (action: string, binding: MidiBinding | null) => void
   setSoundMapping: (soundId: string, binding: MidiBinding | null) => void
+  setKeyboardMapping: (action: string, binding: KeyBinding | null) => void
+  setSoundKeyboardMapping: (soundId: string, binding: KeyBinding | null) => void
   saveMappings: () => void
   loadMappings: () => void
 }
 
 const MAPPINGS_KEY = 'midiMappings'
 const SOUND_MAPPINGS_KEY = 'midiSoundMappings'
+const KEYBOARD_MAPPINGS_KEY = 'keyboardMappings'
+const SOUND_KEYBOARD_MAPPINGS_KEY = 'soundKeyboardMappings'
 const DEVICE_ID_KEY = 'midiDeviceId'
 
 export const useMidiStore = create<MidiStore>((set, get) => ({
@@ -50,8 +67,11 @@ export const useMidiStore = create<MidiStore>((set, get) => ({
   savedDeviceId: null,
   learningAction: null,
   learningSoundId: null,
+  learningMode: 'both',
   mappings: {},
   soundMappings: {},
+  keyboardMappings: {},
+  soundKeyboardMappings: {},
 
   init: async () => {
     if (!navigator.requestMIDIAccess) {
@@ -124,7 +144,7 @@ export const useMidiStore = create<MidiStore>((set, get) => ({
 
     // 设置MIDI消息处理器
     input.onmidimessage = (event) => {
-      const { learningAction, learningSoundId, mappings, soundMappings } = get()
+      const { learningAction, learningSoundId, learningMode, mappings, soundMappings } = get()
 
       // 解析MIDI消息
       const data = event.data
@@ -161,23 +181,29 @@ export const useMidiStore = create<MidiStore>((set, get) => ({
         channel,
       }
 
-      // 如果处于学习模式
-      if (learningAction) {
-        set((state) => ({
-          mappings: { ...state.mappings, [learningAction]: binding },
-          learningAction: null,
-        }))
-        get().saveMappings()
-        return
-      }
-
-      if (learningSoundId) {
-        set((state) => ({
-          soundMappings: { ...state.soundMappings, [learningSoundId]: binding },
-          learningSoundId: null,
-        }))
-        get().saveMappings()
-        return
+      // 如果处于学习模式 (midi 或 both)
+      if ((learningAction || learningSoundId) && (learningMode === 'midi' || learningMode === 'both')) {
+        if (learningAction) {
+          set((state) => ({
+            mappings: { ...state.mappings, [learningAction]: binding },
+            learningAction: learningMode === 'both' ? learningAction : null,
+          }))
+          get().saveMappings()
+          // 如果是 both 模式，继续等待键盘输入；否则停止学习
+          if (learningMode !== 'both') {
+            return
+          }
+        }
+        if (learningSoundId) {
+          set((state) => ({
+            soundMappings: { ...state.soundMappings, [learningSoundId]: binding },
+            learningSoundId: learningMode === 'both' ? learningSoundId : null,
+          }))
+          get().saveMappings()
+          if (learningMode !== 'both') {
+            return
+          }
+        }
       }
 
       // 触发映射的动作
@@ -227,12 +253,12 @@ export const useMidiStore = create<MidiStore>((set, get) => ({
     set({ connectedDevice: null })
   },
 
-  startLearning: (action: string) => {
-    set({ learningAction: action, learningSoundId: null })
+  startLearning: (action: string, mode: 'midi' | 'keyboard' | 'both' = 'both') => {
+    set({ learningAction: action, learningSoundId: null, learningMode: mode })
   },
 
-  startLearningSound: (soundId: string) => {
-    set({ learningSoundId: soundId, learningAction: null })
+  startLearningSound: (soundId: string, mode: 'midi' | 'keyboard' | 'both' = 'both') => {
+    set({ learningSoundId: soundId, learningAction: null, learningMode: mode })
   },
 
   stopLearning: () => {
@@ -265,10 +291,38 @@ export const useMidiStore = create<MidiStore>((set, get) => ({
     get().saveMappings()
   },
 
+  setKeyboardMapping: (action, binding) => {
+    set((state) => {
+      const newMappings = { ...state.keyboardMappings }
+      if (binding) {
+        newMappings[action] = binding
+      } else {
+        delete newMappings[action]
+      }
+      return { keyboardMappings: newMappings }
+    })
+    get().saveMappings()
+  },
+
+  setSoundKeyboardMapping: (soundId, binding) => {
+    set((state) => {
+      const newMappings = { ...state.soundKeyboardMappings }
+      if (binding) {
+        newMappings[soundId] = binding
+      } else {
+        delete newMappings[soundId]
+      }
+      return { soundKeyboardMappings: newMappings }
+    })
+    get().saveMappings()
+  },
+
   saveMappings: () => {
-    const { mappings, soundMappings } = get()
+    const { mappings, soundMappings, keyboardMappings, soundKeyboardMappings } = get()
     localStorage.setItem(MAPPINGS_KEY, JSON.stringify(mappings))
     localStorage.setItem(SOUND_MAPPINGS_KEY, JSON.stringify(soundMappings))
+    localStorage.setItem(KEYBOARD_MAPPINGS_KEY, JSON.stringify(keyboardMappings))
+    localStorage.setItem(SOUND_KEYBOARD_MAPPINGS_KEY, JSON.stringify(soundKeyboardMappings))
   },
 
   loadMappings: () => {
@@ -280,6 +334,14 @@ export const useMidiStore = create<MidiStore>((set, get) => ({
       const soundStored = localStorage.getItem(SOUND_MAPPINGS_KEY)
       if (soundStored) {
         set({ soundMappings: JSON.parse(soundStored) })
+      }
+      const keyboardStored = localStorage.getItem(KEYBOARD_MAPPINGS_KEY)
+      if (keyboardStored) {
+        set({ keyboardMappings: JSON.parse(keyboardStored) })
+      }
+      const soundKeyboardStored = localStorage.getItem(SOUND_KEYBOARD_MAPPINGS_KEY)
+      if (soundKeyboardStored) {
+        set({ soundKeyboardMappings: JSON.parse(soundKeyboardStored) })
       }
     } catch (e) {
       console.error('Failed to load MIDI mappings:', e)

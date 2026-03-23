@@ -3,7 +3,7 @@ import { usePlayerStore } from '../stores/playerStore'
 import { useQueueStore } from '../stores/queueStore'
 import { useInterludeStore } from '../stores/interludeStore'
 import { useAtmosphereStore } from '../stores/atmosphereStore'
-import { useMidiStore } from '../stores/midiStore'
+import { useMidiStore, type KeyBinding } from '../stores/midiStore'
 
 // 检测是否是iPad/iPhone
 function isIOS(): boolean {
@@ -11,25 +11,103 @@ function isIOS(): boolean {
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 }
 
-interface ShortcutConfig {
-  key: string
-  ctrl?: boolean
-  shift?: boolean
-  alt?: boolean
-  action: () => void
-  description: string
-  id: string  // 用于MIDI映射
+// 将 KeyboardEvent.code 转换为可读的显示名称
+function getKeyDisplay(code: string): string {
+  // 特殊键名映射
+  const specialKeys: Record<string, string> = {
+    'Space': 'Space',
+    'ArrowUp': '↑',
+    'ArrowDown': '↓',
+    'ArrowLeft': '←',
+    'ArrowRight': '→',
+    'Escape': 'Esc',
+    'Enter': 'Enter',
+    'Backspace': '⌫',
+    'Delete': 'Del',
+    'Tab': 'Tab',
+    'CapsLock': 'Caps',
+    'ShiftLeft': 'Shift',
+    'ShiftRight': 'Shift',
+    'ControlLeft': 'Ctrl',
+    'ControlRight': 'Ctrl',
+    'AltLeft': 'Alt',
+    'AltRight': 'Alt',
+    'MetaLeft': '⌘',
+    'MetaRight': '⌘',
+    'Digit0': '0',
+    'Digit1': '1',
+    'Digit2': '2',
+    'Digit3': '3',
+    'Digit4': '4',
+    'Digit5': '5',
+    'Digit6': '6',
+    'Digit7': '7',
+    'Digit8': '8',
+    'Digit9': '9',
+    'Minus': '-',
+    'Equal': '=',
+    'BracketLeft': '[',
+    'BracketRight': ']',
+    'Backslash': '\\',
+    'Semicolon': ';',
+    'Quote': "'",
+    'Comma': ',',
+    'Period': '.',
+    'Slash': '/',
+    'Backquote': '`',
+    'Numpad0': 'Num0',
+    'Numpad1': 'Num1',
+    'Numpad2': 'Num2',
+    'Numpad3': 'Num3',
+    'Numpad4': 'Num4',
+    'Numpad5': 'Num5',
+    'Numpad6': 'Num6',
+    'Numpad7': 'Num7',
+    'Numpad8': 'Num8',
+    'Numpad9': 'Num9',
+    'NumpadMultiply': 'Num*',
+    'NumpadAdd': 'Num+',
+    'NumpadSubtract': 'Num-',
+    'NumpadDecimal': 'Num.',
+    'NumpadDivide': 'Num/',
+    'NumpadEnter': 'NumEnter',
+    'F1': 'F1',
+    'F2': 'F2',
+    'F3': 'F3',
+    'F4': 'F4',
+    'F5': 'F5',
+    'F6': 'F6',
+    'F7': 'F7',
+    'F8': 'F8',
+    'F9': 'F9',
+    'F10': 'F10',
+    'F11': 'F11',
+    'F12': 'F12',
+  }
+  
+  // 检查特殊键
+  if (specialKeys[code]) {
+    return specialKeys[code]
+  }
+  
+  // 字母键 (KeyA -> A)
+  if (code.startsWith('Key')) {
+    return code.slice(3)
+  }
+  
+  // 其他情况直接返回
+  return code
 }
 
-// 默认键盘快捷键配置
-const DEFAULT_KEYBOARD_CONFIG: Record<string, string> = {
-  playPause: 'Space',
-  nextSong: 'KeyC',
-  prevSong: 'KeyV',
-  seekForward: 'ArrowRight',
-  seekBackward: 'ArrowLeft',
-  toggleVocal: 'KeyX',
-  stop: 'KeyQ',
+// 将 KeyboardEvent.code 转换为可读的显示名称
+const DEFAULT_KEYBOARD_CONFIG: Record<string, KeyBinding> = {
+  playPause: { key: 'Space', keyDisplay: 'Space' },
+  nextSong: { key: 'KeyC', keyDisplay: 'C' },
+  prevSong: { key: 'KeyV', keyDisplay: 'V' },
+  seekForward: { key: 'ArrowRight', keyDisplay: '→' },
+  seekBackward: { key: 'ArrowLeft', keyDisplay: '←' },
+  toggleVocal: { key: 'KeyX', keyDisplay: 'X' },
+  stop: { key: 'KeyQ', keyDisplay: 'Q' },
 }
 
 /**
@@ -44,7 +122,7 @@ export function useKeyboardShortcuts() {
   const { playNext, playPrevious } = useQueueStore()
   const { stop: stopInterlude, isPlaying: interludeIsPlaying } = useInterludeStore()
   const { stopAllSounds } = useAtmosphereStore()
-  const { init: initMidi } = useMidiStore()
+  const { init: initMidi, learningAction, learningSoundId, learningMode, keyboardMappings, soundKeyboardMappings, setKeyboardMapping, setSoundKeyboardMapping, stopLearning } = useMidiStore()
 
   const { status, currentPosition, duration, volume } = playbackState
 
@@ -153,47 +231,105 @@ export function useKeyboardShortcuts() {
     }
   }, [])
 
-  // 快捷键配置（包含ID用于MIDI映射）
-  const shortcuts: ShortcutConfig[] = [
-    { id: 'playPause', key: DEFAULT_KEYBOARD_CONFIG.playPause, action: handlePlayPause, description: '播放/暂停' },
-    { id: 'nextSong', key: DEFAULT_KEYBOARD_CONFIG.nextSong, action: handleNext, description: '下一首' },
-    { id: 'prevSong', key: DEFAULT_KEYBOARD_CONFIG.prevSong, action: handlePrevious, description: '上一首' },
-    { id: 'seekForward', key: DEFAULT_KEYBOARD_CONFIG.seekForward, action: handleSeekForward, description: '快进10秒' },
-    { id: 'seekBackward', key: DEFAULT_KEYBOARD_CONFIG.seekBackward, action: handleSeekBackward, description: '快退10秒' },
-    { id: 'toggleVocal', key: DEFAULT_KEYBOARD_CONFIG.toggleVocal, action: handleVocalToggle, description: '原唱/伴奏切换' },
-    { id: 'stop', key: DEFAULT_KEYBOARD_CONFIG.stop, action: handleStop, description: '停止' },
-  ]
+  // Action handlers map
+  const actionHandlers = useRef<Record<string, () => void>>({
+    playPause: handlePlayPause,
+    nextSong: handleNext,
+    prevSong: handlePrevious,
+    seekForward: handleSeekForward,
+    seekBackward: handleSeekBackward,
+    toggleVocal: handleVocalToggle,
+    stop: handleStop,
+    stopAllSounds: handleStopAllSounds,
+    interludePlayPause: handleInterludePlayPause,
+  })
 
-  // 键盘事件监听（仅非iOS设备）
+  // 键盘学习监听器
   useEffect(() => {
-    if (isIOS()) {
-      console.log('iOS device detected, keyboard shortcuts disabled')
-      return
-    }
-
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
         return
       }
 
-      const shortcut = shortcuts.find(s => {
-        const keyMatch = e.code === s.key
-        const ctrlMatch = s.ctrl ? e.ctrlKey : !e.ctrlKey
-        const shiftMatch = s.shift ? e.shiftKey : !e.shiftKey
-        const altMatch = s.alt ? e.altKey : !e.altKey
+      // Esc 键取消学习模式
+      if (e.code === 'Escape' && (learningAction || learningSoundId)) {
+        e.preventDefault()
+        stopLearning()
+        return
+      }
+
+      // 如果处于键盘学习模式
+      if ((learningAction || learningSoundId) && (learningMode === 'keyboard' || learningMode === 'both')) {
+        e.preventDefault()
+        
+        const binding: KeyBinding = {
+          key: e.code,
+          keyDisplay: getKeyDisplay(e.code),
+          ctrl: e.ctrlKey || undefined,
+          shift: e.shiftKey || undefined,
+          alt: e.altKey || undefined,
+        }
+
+        if (learningAction) {
+          setKeyboardMapping(learningAction, binding)
+          if (learningMode !== 'both') {
+            stopLearning()
+          }
+        } else if (learningSoundId) {
+          setSoundKeyboardMapping(learningSoundId, binding)
+          if (learningMode !== 'both') {
+            stopLearning()
+          }
+        }
+        return
+      }
+
+      // 正常快捷键处理
+      // 首先检查自定义映射
+      const customBinding = Object.entries(keyboardMappings).find(([, binding]) => {
+        const keyMatch = e.code === binding.key
+        const ctrlMatch = binding.ctrl ? e.ctrlKey : !e.ctrlKey
+        const shiftMatch = binding.shift ? e.shiftKey : !e.shiftKey
+        const altMatch = binding.alt ? e.altKey : !e.altKey
         return keyMatch && ctrlMatch && shiftMatch && altMatch
       })
 
-      if (shortcut) {
-        e.preventDefault()
-        shortcut.action()
+      if (customBinding) {
+        const actionId = customBinding[0]
+        const handler = actionHandlers.current[actionId]
+        if (handler) {
+          e.preventDefault()
+          handler()
+        }
+        return
+      }
+
+      // 检查默认快捷键
+      const defaultBinding = Object.entries(DEFAULT_KEYBOARD_CONFIG).find(([, binding]) => {
+        const keyMatch = e.code === binding.key
+        const ctrlMatch = binding.ctrl ? e.ctrlKey : !e.ctrlKey
+        const shiftMatch = binding.shift ? e.shiftKey : !e.shiftKey
+        const altMatch = binding.alt ? e.altKey : !e.altKey
+        return keyMatch && ctrlMatch && shiftMatch && altMatch
+      })
+
+      if (defaultBinding) {
+        const actionId = defaultBinding[0]
+        // 如果有自定义映射，跳过默认
+        if (keyboardMappings[actionId]) return
+        
+        const handler = actionHandlers.current[actionId]
+        if (handler) {
+          e.preventDefault()
+          handler()
+        }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [shortcuts])
+  }, [learningAction, learningSoundId, learningMode, keyboardMappings, setKeyboardMapping, setSoundKeyboardMapping, stopLearning])
 
   // 全局MIDI事件监听
   useEffect(() => {
@@ -201,40 +337,15 @@ export function useKeyboardShortcuts() {
       const actionId = (e as CustomEvent).detail
       console.log('MIDI action received:', actionId)
 
-      switch (actionId) {
-        case 'playPause':
-          handlePlayPause()
-          break
-        case 'nextSong':
-          handleNext()
-          break
-        case 'prevSong':
-          handlePrevious()
-          break
-        case 'seekForward':
-          handleSeekForward()
-          break
-        case 'seekBackward':
-          handleSeekBackward()
-          break
-        case 'toggleVocal':
-          handleVocalToggle()
-          break
-        case 'stop':
-          handleStop()
-          break
-        case 'stopAllSounds':
-          handleStopAllSounds()
-          break
-        case 'interludePlayPause':
-          handleInterludePlayPause()
-          break
+      const handler = actionHandlers.current[actionId]
+      if (handler) {
+        handler()
       }
     }
 
     window.addEventListener('midi:action', handleMidiAction)
     return () => window.removeEventListener('midi:action', handleMidiAction)
-  }, [handlePlayPause, handleNext, handlePrevious, handleSeekForward, handleSeekBackward, handleVocalToggle, handleStop, handleStopAllSounds, handleInterludePlayPause])
+  }, [])
 
   // 全局MIDI音效事件监听
   useEffect(() => {
@@ -247,9 +358,48 @@ export function useKeyboardShortcuts() {
     return () => window.removeEventListener('midi:sound', handleMidiSound)
   }, [])
 
+  // 全局键盘音效事件监听
+  useEffect(() => {
+    const handleKeyboardSound = (e: Event) => {
+      const soundId = (e as CustomEvent).detail
+      useAtmosphereStore.getState().playSound(soundId)
+    }
+
+    window.addEventListener('keyboard:sound', handleKeyboardSound)
+    return () => window.removeEventListener('keyboard:sound', handleKeyboardSound)
+  }, [])
+
+  // 处理自定义键盘映射的音效
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return
+      }
+
+      // 检查音效键盘映射
+      const soundBinding = Object.entries(soundKeyboardMappings).find(([, binding]) => {
+        const keyMatch = e.code === binding.key
+        const ctrlMatch = binding.ctrl ? e.ctrlKey : !e.ctrlKey
+        const shiftMatch = binding.shift ? e.shiftKey : !e.shiftKey
+        const altMatch = binding.alt ? e.altKey : !e.altKey
+        return keyMatch && ctrlMatch && shiftMatch && altMatch
+      })
+
+      if (soundBinding) {
+        const soundId = soundBinding[0]
+        useAtmosphereStore.getState().playSound(soundId)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [soundKeyboardMappings])
+
   return {
-    shortcuts,
     isIOS: isIOS(),
+    getKeyDisplay,
+    DEFAULT_KEYBOARD_CONFIG,
     handlePlayPause,
     handleSeekForward,
     handleSeekBackward,

@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Volume2, VolumeX, Plus, Trash2, Music, Play, Pause, StopCircle, Piano, Settings } from 'lucide-react'
+import { Volume2, VolumeX, Plus, Trash2, Music, Play, Pause, StopCircle, Piano, Settings, Keyboard } from 'lucide-react'
 import { useAtmosphereStore } from '../stores/atmosphereStore'
 import { useInterludeStore } from '../stores/interludeStore'
 import { useMidiStore } from '../stores/midiStore'
@@ -70,7 +70,12 @@ export default function AtmospherePage() {
 
 // MIDI控制面板
 function MidiPanel() {
-  const { devices, connectedDevice, connect, disconnect, learningAction, startLearning, stopLearning, mappings, setMapping } = useMidiStore()
+  const { 
+    devices, connectedDevice, connect, disconnect, 
+    learningAction, startLearning, stopLearning, 
+    mappings, setMapping, 
+    keyboardMappings, setKeyboardMapping 
+  } = useMidiStore()
   const [showMidiSettings, setShowMidiSettings] = useState(true)
 
   return (
@@ -125,42 +130,65 @@ function MidiPanel() {
         )}
       </div>
 
-      {/* 快捷键MIDI映射 */}
+      {/* 快捷键映射 */}
       <div className="bg-surface rounded-lg p-4">
-        <h3 className="font-medium mb-3">快捷键 MIDI 映射</h3>
-        <p className="text-sm text-white/40 mb-4">点击"学习"按钮，然后按下MIDI控制器上的按键来映射</p>
+        <h3 className="font-medium mb-1">快捷键映射</h3>
+        <p className="text-sm text-white/40 mb-4">点击"学习"按钮，然后按下 MIDI 键或键盘按键来映射</p>
 
         <div className="space-y-2">
           {MIDI_ACTIONS.map((action) => {
-            const binding = mappings[action.id]
+            const midiBinding = mappings[action.id]
+            const keyBinding = keyboardMappings[action.id]
+            const isLearning = learningAction === action.id
+            
             return (
               <div key={action.id} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
                 <span className="text-sm">{action.label}</span>
-                <div className="flex items-center gap-2">
-                  {binding && (
-                    <span className="text-xs bg-white/10 px-2 py-1 rounded">
-                      {binding.messageType}: {binding.note} (CH{binding.channel})
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  {/* MIDI 映射显示 */}
+                  {midiBinding && (
+                    <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded flex items-center gap-1">
+                      <Piano className="w-3 h-3" />
+                      {midiBinding.messageType}: {midiBinding.note}
                     </span>
                   )}
+                  
+                  {/* 键盘映射显示 */}
+                  {keyBinding && (
+                    <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-1 rounded flex items-center gap-1">
+                      <Keyboard className="w-3 h-3" />
+                      {keyBinding.keyDisplay}
+                      {keyBinding.ctrl && ' + Ctrl'}
+                      {keyBinding.shift && ' + Shift'}
+                      {keyBinding.alt && ' + Alt'}
+                    </span>
+                  )}
+                  
+                  {/* 学习按钮 */}
                   <button
                     onClick={() => {
-                      if (learningAction === action.id) {
+                      if (isLearning) {
                         stopLearning()
                       } else {
-                        startLearning(action.id)
+                        startLearning(action.id, 'both')
                       }
                     }}
                     className={`px-3 py-1 rounded text-sm transition-colors ${
-                      learningAction === action.id
-                        ? 'bg-primary text-white'
+                      isLearning
+                        ? 'bg-primary text-white animate-pulse'
                         : 'bg-white/10 text-white/60 hover:text-white'
                     }`}
                   >
-                    {learningAction === action.id ? '学习中...' : binding ? '重新学习' : '学习'}
+                    {isLearning ? '学习中...' : (midiBinding || keyBinding) ? '重新学习' : '学习'}
                   </button>
-                  {binding && (
+                  
+                  {/* 清除按钮 */}
+                  {(midiBinding || keyBinding) && (
                     <button
-                      onClick={() => setMapping(action.id, null)}
+                      onClick={() => {
+                        if (midiBinding) setMapping(action.id, null)
+                        if (keyBinding) setKeyboardMapping(action.id, null)
+                      }}
                       className="text-red-400 hover:text-red-300 text-sm"
                     >
                       清除
@@ -171,6 +199,29 @@ function MidiPanel() {
             )
           })}
         </div>
+        
+        {/* 学习状态提示 */}
+        {learningAction && (
+          <div className="mt-4 p-3 bg-primary/10 rounded-lg">
+            <p className="text-sm text-primary">
+              正在学习 <strong>{MIDI_ACTIONS.find(a => a.id === learningAction)?.label}</strong>...
+            </p>
+            <p className="text-xs text-white/60 mt-1">
+              按下 MIDI 控制器按键或键盘按键进行映射，按 Esc 取消
+            </p>
+          </div>
+        )}
+      </div>
+      
+      {/* 使用说明 */}
+      <div className="bg-surface/50 rounded-lg p-4">
+        <h4 className="font-medium text-sm mb-2">使用说明</h4>
+        <ul className="text-sm text-white/60 space-y-1">
+          <li>• 点击"学习"按钮后，可以同时映射 MIDI 和键盘</li>
+          <li>• 先按 MIDI 键，再按键盘键，或只按其中一个</li>
+          <li>• 按 Esc 键取消学习模式</li>
+          <li>• 紫色标签表示 MIDI 映射，蓝色标签表示键盘映射</li>
+        </ul>
       </div>
     </div>
   )
@@ -179,7 +230,13 @@ function MidiPanel() {
 // 音效面板
 function SoundsPanel() {
   const { sounds, playingSounds, addSound, removeSound, playSound, stopSound, stopAllSounds, updateSound } = useAtmosphereStore()
-  const { devices, connectedDevice, connect, disconnect, learningSoundId, startLearningSound, stopLearning, soundMappings, setSoundMapping, mappings, learningAction } = useMidiStore()
+  const { 
+    devices, connectedDevice, connect, disconnect, 
+    learningSoundId, startLearningSound, stopLearning, 
+    soundMappings, setSoundMapping, 
+    soundKeyboardMappings, setSoundKeyboardMapping,
+    mappings, learningAction 
+  } = useMidiStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showAddForm, setShowAddForm] = useState(false)
   const [newSound, setNewSound] = useState({ name: '', color: COLORS[0], isOneShot: true })
@@ -302,6 +359,7 @@ function SoundsPanel() {
         {sounds.map((sound) => {
           const isPlaying = playingSounds.has(sound.id)
           const midiMapping = soundMappings[sound.id]
+          const keyMapping = soundKeyboardMappings[sound.id]
           return (
             <div key={sound.id} className="relative group">
               <button
@@ -326,12 +384,19 @@ function SoundsPanel() {
                 {/* Name */}
                 <span className="text-sm text-center truncate w-full">{sound.name}</span>
 
-                {/* MIDI info */}
-                {midiMapping && (
-                  <span className="text-xs text-white/40">
-                    {midiMapping.messageType}: {midiMapping.note}
-                  </span>
-                )}
+                {/* MIDI/Keyboard info */}
+                <div className="flex items-center gap-1 flex-wrap justify-center">
+                  {midiMapping && (
+                    <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded">
+                      {midiMapping.messageType}: {midiMapping.note}
+                    </span>
+                  )}
+                  {keyMapping && (
+                    <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded">
+                      {keyMapping.keyDisplay}
+                    </span>
+                  )}
+                </div>
 
                 {/* Playing indicator */}
                 {isPlaying && (
@@ -488,21 +553,21 @@ function SoundsPanel() {
                 </div>
               </div>
 
-              {/* MIDI设置 */}
+              {/* MIDI/键盘映射设置 */}
               <div className="border-t border-white/10 pt-4">
                 <div className="flex items-center justify-between mb-3">
-                  <label className="text-sm font-medium">MIDI 映射</label>
+                  <label className="text-sm font-medium">快捷键映射</label>
                   <button
                     onClick={() => {
                       if (learningSoundId === editingSound.id) {
                         stopLearning()
                       } else {
-                        startLearningSound(editingSound.id)
+                        startLearningSound(editingSound.id, 'both')
                       }
                     }}
                     className={`px-3 py-1 rounded-lg text-sm ${
                       learningSoundId === editingSound.id
-                        ? 'bg-primary text-white'
+                        ? 'bg-primary text-white animate-pulse'
                         : 'bg-white/10 text-white/60 hover:text-white'
                     }`}
                   >
@@ -511,21 +576,36 @@ function SoundsPanel() {
                 </div>
 
                 {learningSoundId === editingSound.id && (
-                  <p className="text-sm text-primary mb-2">请按下 MIDI 控制器上的按键...</p>
+                  <p className="text-sm text-primary mb-2">按下 MIDI 键或键盘按键进行映射...</p>
                 )}
 
-                {soundMappings[editingSound.id] && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-white/60">当前映射:</span>
-                    <span className="bg-white/10 px-2 py-1 rounded">
-                      {soundMappings[editingSound.id].messageType}: {soundMappings[editingSound.id].note} (CH{soundMappings[editingSound.id].channel})
-                    </span>
-                    <button
-                      onClick={() => setSoundMapping(editingSound.id, null)}
-                      className="text-red-400 hover:text-red-300"
-                    >
-                      清除
-                    </button>
+                {/* 当前映射显示 */}
+                {(soundMappings[editingSound.id] || soundKeyboardMappings[editingSound.id]) && (
+                  <div className="flex items-center gap-2 flex-wrap mb-2">
+                    {soundMappings[editingSound.id] && (
+                      <span className="bg-purple-500/20 text-purple-300 px-2 py-1 rounded text-sm flex items-center gap-1">
+                        <Piano className="w-3 h-3" />
+                        {soundMappings[editingSound.id].messageType}: {soundMappings[editingSound.id].note}
+                        <button
+                          onClick={() => setSoundMapping(editingSound.id, null)}
+                          className="ml-1 text-purple-300/60 hover:text-purple-300"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    )}
+                    {soundKeyboardMappings[editingSound.id] && (
+                      <span className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-sm flex items-center gap-1">
+                        <Keyboard className="w-3 h-3" />
+                        {soundKeyboardMappings[editingSound.id].keyDisplay}
+                        <button
+                          onClick={() => setSoundKeyboardMapping(editingSound.id, null)}
+                          className="ml-1 text-blue-300/60 hover:text-blue-300"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -586,7 +666,10 @@ function SoundsPanel() {
 // 过场音乐面板
 function InterludePanel() {
   const { tracks, currentTrack, isPlaying, volume, addTrack, removeTrack, play, pause, stop, setVolume, setCurrentTrack } = useInterludeStore()
-  const { mappings, learningAction, startLearning, stopLearning, setMapping } = useMidiStore()
+  const { 
+    mappings, keyboardMappings, learningAction, startLearning, stopLearning, 
+    setMapping, setKeyboardMapping 
+  } = useMidiStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showAddForm, setShowAddForm] = useState(false)
   const [newTrackName, setNewTrackName] = useState('')
@@ -618,6 +701,7 @@ function InterludePanel() {
   }
 
   const interludeBinding = mappings['interludePlayPause']
+  const interludeKeyBinding = keyboardMappings['interludePlayPause']
 
   return (
     <div className="space-y-4">
@@ -672,17 +756,24 @@ function InterludePanel() {
         </div>
       )}
 
-      {/* MIDI控制 */}
+      {/* MIDI/键盘控制 */}
       <div className="bg-surface rounded-lg p-4">
         <div className="flex items-center justify-between">
           <div>
-            <h4 className="font-medium text-sm">MIDI 控制</h4>
+            <h4 className="font-medium text-sm">快捷键控制</h4>
             <p className="text-xs text-white/40">播放/暂停过场音乐</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             {interludeBinding && (
-              <span className="text-xs bg-white/10 px-2 py-1 rounded">
+              <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded flex items-center gap-1">
+                <Piano className="w-3 h-3" />
                 {interludeBinding.messageType}: {interludeBinding.note}
+              </span>
+            )}
+            {interludeKeyBinding && (
+              <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-1 rounded flex items-center gap-1">
+                <Keyboard className="w-3 h-3" />
+                {interludeKeyBinding.keyDisplay}
               </span>
             )}
             <button
@@ -690,20 +781,23 @@ function InterludePanel() {
                 if (learningAction === 'interludePlayPause') {
                   stopLearning()
                 } else {
-                  startLearning('interludePlayPause')
+                  startLearning('interludePlayPause', 'both')
                 }
               }}
               className={`px-3 py-1 rounded text-sm transition-colors ${
                 learningAction === 'interludePlayPause'
-                  ? 'bg-primary text-white'
+                  ? 'bg-primary text-white animate-pulse'
                   : 'bg-white/10 text-white/60 hover:text-white'
               }`}
             >
               {learningAction === 'interludePlayPause' ? '学习中...' : '学习'}
             </button>
-            {interludeBinding && (
+            {(interludeBinding || interludeKeyBinding) && (
               <button
-                onClick={() => setMapping('interludePlayPause', null)}
+                onClick={() => {
+                  if (interludeBinding) setMapping('interludePlayPause', null)
+                  if (interludeKeyBinding) setKeyboardMapping('interludePlayPause', null)
+                }}
                 className="text-red-400 hover:text-red-300 text-sm"
               >
                 清除
