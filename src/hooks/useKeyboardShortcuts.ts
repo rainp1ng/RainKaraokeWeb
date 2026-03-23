@@ -108,6 +108,8 @@ const DEFAULT_KEYBOARD_CONFIG: Record<string, KeyBinding> = {
   seekBackward: { key: 'ArrowLeft', keyDisplay: '←' },
   toggleVocal: { key: 'KeyX', keyDisplay: 'X' },
   stop: { key: 'KeyQ', keyDisplay: 'Q' },
+  stopAllSounds: { key: 'KeyE', keyDisplay: 'E' },
+  interludePlayPause: { key: 'KeyW', keyDisplay: 'W' },
 }
 
 /**
@@ -426,4 +428,6 @@ export const SHORTCUT_HELP = [
   { key: 'V', description: '上一首' },
   { key: 'X', description: '原唱/伴奏切换' },
   { key: 'Q', description: '停止' },
+  { key: 'W', description: '过场音乐播放/暂停' },
+  { key: 'E', description: '停止所有音效' },
 ]
